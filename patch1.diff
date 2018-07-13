@@ -1,0 +1,199 @@
+--- ./netpbm-10.47.67/converter/other/bmptopnm.c	2017-06-29 01:11:44.000000000 +0300
++++ ./bmp-to-pgm/bmptopnm_as_lib.c	2018-03-22 15:34:32.255883317 +0300
+@@ -32,6 +32,7 @@
+ #include "shhopt.h"
+ #include "nstring.h"
+ #include "bmp.h"
++#include "bmptopnm.h"
+ 
+ /* MAXCOLORS is the maximum size of a color map in a BMP image */
+ #define MAXCOLORS       256
+@@ -41,74 +42,6 @@
+        truecolor raster or in a colormap
+     */
+ 
+-enum rowOrder {BOTTOMUP, TOPDOWN};
+-
+-struct bitPosition {
+-    /* mask and shift count to describe a set of bits in a binary value.
+-
+-       Example: if 16 bits are laid out as XRRRRRGGGGGBBBBB then the shift
+-       count for the R component is 10 and the mask is 0000000000011111.
+-
+-       A 'mask' of zero denotes absence of any bits; e.g. in the example
+-       above, the mask for the transparency component is zero because there
+-       is no transparency component .  'shift' is arbitrary in that case.
+-    */
+-    unsigned int shift;
+-        /* How many bits right you have to shift the value to get the subject
+-           bits in the least significant bit positions.
+-        */
+-    unsigned int mask;
+-        /* Has one bits in positions where the subject bits are after
+-           shifting.
+-        */
+-};
+-
+-struct pixelformat {
+-    /* The format of a pixel representation from the raster.  i.e. which 
+-       bits apply to red, green, blue, and transparency 
+-    */
+-    struct bitPosition red;
+-    struct bitPosition blu;
+-    struct bitPosition grn;
+-    struct bitPosition trn;
+-    
+-    bool conventionalBgr;
+-        /* This means that the above bit positions are just the conventional
+-           BGR format -- one byte Blue, one byte Green, one byte Red,
+-           no alpha.  Though it's totally redundant with the members above,
+-           this member speeds up computation:  We've never actually seen
+-           a BMP file that doesn't use conventional BGR, and it doesn't
+-           require any masking or shifting at all to interpret.
+-        */
+-};
+-
+-struct bmpInfoHeader {
+-    enum rowOrder rowOrder;
+-    unsigned int cols;
+-    unsigned int rows;
+-    unsigned int cBitCount;
+-        /* Number of bits in the BMP file that each pixel occupies. */
+-    enum bmpClass class;
+-    bool bitFields;
+-        /* The raster values are arranged in arbitrary bit fields as
+-           described by the "mask" values in the header, rather than
+-           fixed formats.
+-        */
+-    unsigned int cmapsize;
+-        /* Size in bytes of the colormap (palette) in the BMP file.
+-
+-           Zero means there is no colormap.
+-        */
+-    unsigned int imageSize;
+-        /* Size in bytes of the image data.  We only reference this 
+-           when the image is compressed. */    
+-    unsigned short cPlanes;
+-    unsigned long int compression;
+-    struct pixelformat pixelformat;
+-};
+-
+-
+-
+ struct cmdline_info {
+     /* All the information the user supplied in the command line,
+        in a form easy for the program to use.
+@@ -119,8 +52,6 @@
+ 
+ static const char *ifname;
+ 
+-
+-
+ static void
+ parse_command_line(int argc, char ** argv,
+                    struct cmdline_info *cmdline_p) {
+@@ -1341,7 +1272,7 @@
+ 
+ 
+ 
+-static void
++void
+ readBmp(FILE *               const ifP, 
+         unsigned char ***    const BMPrasterP, 
+         int *                const colsP, 
+@@ -1412,8 +1343,9 @@
+ 
+ 
+ 
+-static void
+-writeRasterGen(unsigned char **   const BMPraster,
++void
++writeRasterGen(FILE          *    const fileP,
++               unsigned char **   const BMPraster,
+                int                const cols, 
+                int                const rows, 
+                int                const format,
+@@ -1441,7 +1373,7 @@
+     for (row = 0; row < rows; ++row) {
+         convertRow(BMPraster[row], xelrow, cols, cBitCount, pixelformat,
+                    colormap);
+-        pnm_writepnmrow(stdout, xelrow, cols, bmpMaxval, format, FALSE);
++        pnm_writepnmrow(fileP, xelrow, cols, bmpMaxval, format, FALSE);
+     }
+     pnm_freerow(xelrow);
+ }
+@@ -1500,74 +1432,3 @@
+     }
+ }
+ 
+-
+-
+-int
+-main(int argc, char ** argv) {
+-
+-    struct cmdline_info cmdline;
+-    FILE * ifP;
+-    int outputType;
+-
+-    bool grayPresent, colorPresent;
+-        /* These tell whether the image contains shades of gray other than
+-           black and white and whether it has colors other than black, white,
+-           and gray.
+-        */
+-    int cols, rows;
+-    unsigned char **BMPraster;
+-        /* The raster part of the BMP image, as a row x column array, with
+-           each element being a raw byte from the BMP raster.  Note that
+-           BMPraster[0] is really Row 0 -- the top row of the image, even
+-           though the bottom row comes first in the BMP format.
+-        */
+-    unsigned int cBitCount;
+-        /* Number of bits in BMP raster for each pixel */
+-    struct pixelformat pixelformat;
+-        /* Format of the raster bits for a single pixel */
+-    xel * colormap;
+-        /* Malloc'ed colormap (palette) from the BMP.  Contents of map
+-           undefined if not a colormapped BMP.
+-         */
+-
+-    pnm_init(&argc, argv);
+-
+-    parse_command_line(argc, argv, &cmdline);
+-
+-    ifP = pm_openr(cmdline.input_filespec);
+-    if (streq(cmdline.input_filespec, "-"))
+-        ifname = "Standard Input";
+-    else 
+-        ifname = cmdline.input_filespec;
+-
+-    readBmp(ifP, &BMPraster, &cols, &rows, &grayPresent, &colorPresent, 
+-            &cBitCount, &pixelformat, &colormap,
+-            cmdline.verbose);
+-    pm_close(ifP);
+-
+-    if (colorPresent) {
+-        outputType = PPM_TYPE;
+-        pm_message("WRITING PPM IMAGE");
+-    } else if (grayPresent) {
+-        outputType = PGM_TYPE;
+-        pm_message("WRITING PGM IMAGE");
+-    } else {
+-        outputType = PBM_TYPE;
+-        pm_message("WRITING PBM IMAGE");
+-    }
+-    
+-    if (outputType == PBM_TYPE  && cBitCount == 1){
+-        pbm_writepbminit(stdout, cols, rows, FALSE);
+-        writeRasterPbm(BMPraster, cols, rows, colormap);
+-    } else {
+-        pnm_writepnminit(stdout, cols, rows, bmpMaxval, outputType, FALSE);
+-        writeRasterGen(BMPraster, cols, rows, outputType, cBitCount,
+-                       pixelformat, colormap); 
+-    }
+-    free(colormap);
+-    free(BMPraster);
+-
+-    return 0;
+-}
+-
+-
