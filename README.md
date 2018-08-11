@@ -11,7 +11,8 @@ This is mix of code: shell, makefile, plain C .
 
 Actually this:
  * installs dependencies, 
- * downloads opensource code from network, applies patches,
+ * downloads opensource code from network,
+ * applies patches for test job,
  * builds and shows tests result. 
 
 README.russian.utf8.txt and testjob.utf8.txt contain detailed explanation in Russian language.
